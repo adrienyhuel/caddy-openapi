@@ -52,6 +52,8 @@ Reports any errors as a `{openapi.error}` [placeholder](https://caddyserver.com/
 | `validate_servers`       | Enable server validation. Accepts `true`, `false` or just the directive which enables validation. Default is `true`. |
 | `log_error`              | Toggles error logging. Default is `false` |
 | `check`                  | Enable validation of the request parameters; include one or more of the following directives in the body:`req_params`, `req_body` and `resp_body`. `resp_body` only validates `application/json` payload. Note that validating the request body will implicitly set `req_params` |
+| `additional_servers`     | List of servers to add to openapi spec for request validation |
+| `replace_servers`        | Make additional_servers replace existing servers in OpenAPI spec |
 
 Errors are reported in the following [placeholders](https://caddyserver.com/docs/caddyfile/concepts#placeholders). You can use them in other [directives](https://caddyserver.com/docs/caddyfile/directives) like [`respond`](https://caddyserver.com/docs/caddyfile/directives/respond)
 
