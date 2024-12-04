@@ -33,6 +33,7 @@ const (
 	TOKEN_LOG_ERROR        = "log_error"
 	TOKEN_VALIDATE_SERVERS = "validate_servers"
 	TOKEN_CHECK            = "check"
+	TOKEN_SKIP_MISSING_SPEC= "skip_missing_spec"
 	VALUE_REQ_PARAMS       = "req_params"
 	VALUE_REQ_BODY         = "req_body"
 	VALUE_RESP_BODY        = "resp_body"
@@ -56,6 +57,9 @@ type OpenAPI struct {
 
 	// Enable server validation
 	ValidateServers bool `json:"valid_servers,omitempty"`
+
+	// Should the request proceed if spec is missing. Default is `false`
+	SkipMissingSpec bool `json:"skip_missing_spec,omitempty"`
 
 	oas    *openapi3.T
 	router routers.Router
@@ -109,19 +113,34 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 
 	oapi.log(fmt.Sprintf("Using OpenAPI spec: %s", oapi.Spec))
 
-	if strings.HasPrefix("http", oapi.Spec) {
-		var u *url.URL
-		if u, err = url.Parse(oapi.Spec); nil != err {
+	parse_spec := func() error {
+		if strings.HasPrefix("http", oapi.Spec) {
+			var u *url.URL
+			if u, err = url.Parse(oapi.Spec); nil != err {
+				return err
+			}
+			if oas, err = openapi3.NewLoader().LoadFromURI(u); nil != err {
+				return err
+			}
+		} else if _, err = os.Stat(oapi.Spec); !(nil == err || os.IsExist(err)) {
 			return err
-		}
-		if oas, err = openapi3.NewLoader().LoadFromURI(u); nil != err {
-			return err
-		}
-	} else if _, err = os.Stat(oapi.Spec); !(nil == err || os.IsExist(err)) {
-		return err
 
-	} else if oas, err = openapi3.NewLoader().LoadFromFile(oapi.Spec); nil != err {
-		return err
+		} else if oas, err = openapi3.NewLoader().LoadFromFile(oapi.Spec); nil != err {
+			return err
+		}
+
+		return nil
+	}
+
+	parse_err := parse_spec()
+
+	if nil != parse_err {
+		if !oapi.SkipMissingSpec {
+			return parse_err
+		} else {
+			oapi.log("OpenAPI spec missing or malformed, skipping...")
+			return nil
+		}
 	}
 
 	if oapi.ValidateServers {
@@ -228,6 +247,12 @@ func (oapi *OpenAPI) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 			if nil != err {
 				return err
 			}
+
+		case TOKEN_SKIP_MISSING_SPEC:
+			if d.NextArg() {
+				return d.ArgErr()
+			}
+			oapi.SkipMissingSpec = true
 
 		default:
 			return d.Errf("unrecognized subdirective: '%s'", token)
