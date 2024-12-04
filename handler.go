@@ -29,6 +29,23 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	replacer.Set(OPENAPI_STATUS_CODE, "")
 	replacer.Set(OPENAPI_RESPONSE_ERROR, "")
 
+	// if oas is nil means that we skipped openapi spec parsing errors and we can't check this request
+	if nil == oapi.oas {
+
+		err := fmt.Errorf("OpenApi spec is missing or malformed")
+		replacer.Set(OPENAPI_ERROR, err.Error())
+		replacer.Set(OPENAPI_STATUS_CODE, 404)
+		if oapi.LogError {
+			oapi.err(fmt.Sprintf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
+		}
+
+		if !oapi.FallThrough {
+			return err
+		} else {
+			return next.ServeHTTP(w, req)
+		}
+	}
+
 	route, pathParams, err := oapi.router.FindRoute(req)
 
 	if nil != err {
