@@ -77,25 +77,28 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		}
 	}
 
-	if query, exists := resolvePolicy(route, req.Method); exists {
-		result, err := evalPolicy(query, oapi.policy, req, pathParams)
-		if nil != err {
-			replacer.Set(OPENAPI_ERROR, err.Error())
-			replacer.Set(OPENAPI_STATUS_CODE, 403)
-			if oapi.LogError {
-				oapi.err(err.Error())
+	// don't check if we have a 404 on the route
+	if (nil == err) {
+		if query, exists := resolvePolicy(route, req.Method); exists {
+			result, err := evalPolicy(query, oapi.policy, req, pathParams)
+			if nil != err {
+				replacer.Set(OPENAPI_ERROR, err.Error())
+				replacer.Set(OPENAPI_STATUS_CODE, 403)
+				if oapi.LogError {
+					oapi.err(err.Error())
+				}
+				return nil
 			}
-			return nil
-		}
 
-		if !result {
-			err = fmt.Errorf("Denied: %s", query)
-			replacer.Set(OPENAPI_ERROR, err.Error())
-			replacer.Set(OPENAPI_STATUS_CODE, 403)
-			if oapi.LogError {
-				oapi.err(err.Error())
+			if !result {
+				err = fmt.Errorf("Denied: %s", query)
+				replacer.Set(OPENAPI_ERROR, err.Error())
+				replacer.Set(OPENAPI_STATUS_CODE, 403)
+				if oapi.LogError {
+					oapi.err(err.Error())
+				}
+				return err
 			}
-			return err
 		}
 	}
 
@@ -104,7 +107,8 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		return err
 	}
 
-	if nil != oapi.contentMap {
+	// if oapi route is nil we don't have check response
+	if (nil != route) && (nil != oapi.contentMap) {
 		contentType := w.Header().Get("Content-Type")
 		if "" == contentType {
 			return nil
