@@ -34,6 +34,8 @@ const (
 	TOKEN_VALIDATE_SERVERS = "validate_servers"
 	TOKEN_CHECK            = "check"
 	TOKEN_SKIP_MISSING_SPEC= "skip_missing_spec"
+	TOKEN_ADD_SERVERS      = "additional_servers"
+	TOKEN_REPLACE_SERVERS  = "replace_servers"
 	VALUE_REQ_PARAMS       = "req_params"
 	VALUE_REQ_BODY         = "req_body"
 	VALUE_RESP_BODY        = "resp_body"
@@ -60,6 +62,15 @@ type OpenAPI struct {
 
 	// Should the request proceed if spec is missing. Default is `false`
 	SkipMissingSpec bool `json:"skip_missing_spec,omitempty"`
+
+	// A list of additional servers to be considered valid when
+	// when performing the request validation. The additional servers
+	// are added to the servers in the OpenAPI specification.
+	// Default is empty list
+	AdditionalServers []string `json:"additional_servers,omitempty"`
+
+	// Make AdditionalServers replace existing servers in spec
+	ReplaceServers bool `json:"replace_servers,omitempty"`
 
 	oas    *openapi3.T
 	router routers.Router
@@ -144,6 +155,20 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 	}
 
 	if oapi.ValidateServers {
+
+		if oapi.ReplaceServers && len(oapi.AdditionalServers) != 0 {
+			oas.Servers = make([]*openapi3.Server, 0)
+		}
+
+		for i, s := range oapi.AdditionalServers {
+			server := &openapi3.Server{
+				URL:         s,
+				Description: fmt.Sprintf("Additional server: %d", i),
+				Variables:   make(map[string]*openapi3.ServerVariable),
+			}
+			oas.Servers = append(oas.Servers, server)
+		}
+
 		oapi.log("List of servers")
 		for _, s := range oas.Servers {
 			oapi.log(fmt.Sprintf("- %s #%s", s.URL, s.Description))
@@ -190,6 +215,8 @@ func (oapi *OpenAPI) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	oapi.LogError = false
 	oapi.ValidateServers = true
 	oapi.Check = nil
+	oapi.AdditionalServers = make([]string, 0)
+	oapi.ReplaceServers = false
 
 	// Skip the openapi directive
 	d.Next()
@@ -253,6 +280,17 @@ func (oapi *OpenAPI) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				return d.ArgErr()
 			}
 			oapi.SkipMissingSpec = true
+
+		case TOKEN_ADD_SERVERS:
+			oapi.AdditionalServers = d.RemainingArgs()
+
+		case TOKEN_REPLACE_SERVERS:
+			if d.NextArg() {
+				b, err := strconv.ParseBool(d.Val())
+				if nil == err {
+					oapi.ReplaceServers = b
+				}
+			}
 
 		default:
 			return d.Errf("unrecognized subdirective: '%s'", token)
