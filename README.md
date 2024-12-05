@@ -62,7 +62,6 @@ Errors are reported in the following [placeholders](https://caddyserver.com/docs
 |--------------------------|-------------|
 | `openapi.error`          | Description of the error |
 | `openapi.status_code`    | Suggested status code |
-| `openapi.response_error` | Resonse error |
 
 ## Example
 

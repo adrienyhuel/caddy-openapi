@@ -4,30 +4,16 @@ import (
 	"context"
 	"fmt"
 	"strings"
+	"strconv"
 
 	"net/http"
 
+	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/caddyconfig/caddyfile"
 	"github.com/getkin/kin-openapi/openapi3"
 	"github.com/getkin/kin-openapi/routers"
 	"github.com/open-policy-agent/opa/rego"
 )
-
-type WrapperResponseWriter struct {
-	http.ResponseWriter
-	StatusCode int
-	Buffer     []byte
-}
-
-func (w *WrapperResponseWriter) WriteHeader(sc int) {
-	w.ResponseWriter.WriteHeader(sc)
-	w.StatusCode = sc
-}
-
-func (w *WrapperResponseWriter) Write(buff []byte) (int, error) {
-	w.Buffer = append(w.Buffer[:], buff[:]...)
-	return w.ResponseWriter.Write(buff)
-}
 
 func getIP(req *http.Request) string {
 	ip := req.Header.Get("X-Forwarded-For")
@@ -59,12 +45,8 @@ func parseCheckDirective(oapi *OpenAPI, d *caddyfile.Dispenser) error {
 		case VALUE_RESP_BODY:
 			args := d.RemainingArgs()
 			oapi.Check.ResponseBody = make([]string, len(args))
-			if len(args) <= 0 {
-				oapi.Check.ResponseBody = append(oapi.Check.ResponseBody, "application/json")
-			} else {
-				for i, content := range args {
-					oapi.Check.ResponseBody[i] = strings.ToLower(strings.TrimSpace(content))
-				}
+			for i, content := range args {
+				oapi.Check.ResponseBody[i] = strings.ToLower(strings.TrimSpace(content))
 			}
 
 		default:
@@ -201,4 +183,14 @@ func (oapi OpenAPI) err(msg string) {
 	defer oapi.logger.Sync()
 	sugar := oapi.logger.Sugar()
 	sugar.Errorf(msg)
+}
+
+func (oapi OpenAPI) respond(w http.ResponseWriter, repl *caddy.Replacer) error {
+	statusCode, err := strconv.Atoi(repl.ReplaceAll(oapi.ErrorResponse.Code, ""))
+	if err != nil {
+		statusCode = 400
+	}
+	clear(w.Header())
+	http.Error(w, repl.ReplaceAll(oapi.ErrorResponse.Template, ""), statusCode)
+	return nil
 }

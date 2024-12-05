@@ -25,7 +25,6 @@ const (
 	X_POLICY               = "x-policy"
 	OPENAPI_ERROR          = "openapi.error"
 	OPENAPI_STATUS_CODE    = "openapi.status_code"
-	OPENAPI_RESPONSE_ERROR = "openapi.response_error"
 	TOKEN_OPENAPI          = "openapi"
 	TOKEN_POLICY_BUNDLE    = "policy_bundle"
 	TOKEN_SPEC             = "spec"
@@ -36,6 +35,7 @@ const (
 	TOKEN_SKIP_MISSING_SPEC= "skip_missing_spec"
 	TOKEN_ADD_SERVERS      = "additional_servers"
 	TOKEN_REPLACE_SERVERS  = "replace_servers"
+	TOKEN_ERROR_RESPONSE   = "error_response"
 	VALUE_REQ_PARAMS       = "req_params"
 	VALUE_REQ_BODY         = "req_body"
 	VALUE_RESP_BODY        = "resp_body"
@@ -72,12 +72,13 @@ type OpenAPI struct {
 	// Make AdditionalServers replace existing servers in spec
 	ReplaceServers bool `json:"replace_servers,omitempty"`
 
+	// Error response format
+	ErrorResponse *ErrorResponse `json:"error_response,omitempty"`
+
 	oas    *openapi3.T
 	router routers.Router
 
 	logger *zap.Logger
-
-	contentMap map[string]string
 
 	policy func(*rego.Rego)
 }
@@ -92,7 +93,12 @@ type CheckOptions struct {
 	// Enable response body validation with an optional list of
 	// `Content-Type` to examine. Default `application/json`. If you set
 	// your content type, the default will be removed
-	ResponseBody []string `json:"resp_body,omitempty"`
+	ResponseBody []string `json:"resp_body"`
+}
+
+type ErrorResponse struct {
+	Template string `json:"template,omitempty"`
+	Code string `json:"code,omitempty"`
 }
 
 var (
@@ -121,6 +127,14 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 
 	oapi.logger = ctx.Logger(oapi)
 	defer oapi.logger.Sync()
+
+	if nil == oapi.ErrorResponse {
+		oapi.ErrorResponse = new(ErrorResponse)
+	}
+
+	if oapi.ErrorResponse.Code == "" {
+		oapi.ErrorResponse.Code = "400"
+	}
 
 	oapi.log(fmt.Sprintf("Using OpenAPI spec: %s", oapi.Spec))
 
@@ -189,9 +203,8 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 	oapi.router = router
 
 	if (nil != oapi.Check) && (nil != oapi.Check.ResponseBody) {
-		oapi.contentMap = make(map[string]string)
-		for _, content := range oapi.Check.ResponseBody {
-			oapi.contentMap[content] = ""
+		if len(oapi.Check.ResponseBody) <= 0 {
+			oapi.Check.ResponseBody = append(oapi.Check.ResponseBody, "application/json")
 		}
 	}
 
@@ -217,6 +230,7 @@ func (oapi *OpenAPI) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 	oapi.Check = nil
 	oapi.AdditionalServers = make([]string, 0)
 	oapi.ReplaceServers = false
+	oapi.ErrorResponse = new(ErrorResponse)
 
 	// Skip the openapi directive
 	d.Next()
@@ -290,6 +304,15 @@ func (oapi *OpenAPI) UnmarshalCaddyfile(d *caddyfile.Dispenser) error {
 				if nil == err {
 					oapi.ReplaceServers = b
 				}
+			}
+
+		case TOKEN_ERROR_RESPONSE:
+			args := d.RemainingArgs()
+			if len(args) == 2 {
+				oapi.ErrorResponse.Template = args[0]
+				oapi.ErrorResponse.Code = args[1]
+			} else {
+				return d.ArgErr()
 			}
 
 		default:
