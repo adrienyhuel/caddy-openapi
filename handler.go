@@ -98,7 +98,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	}
 
 	// don't check if we have a 404 on the route
-	if (nil != route)
+	if (nil != route) {
 		if query, exists := resolvePolicy(route, req.Method); exists {
 			result, err := evalPolicy(query, oapi.policy, req, pathParams)
 			if nil != err {
