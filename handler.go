@@ -32,7 +32,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	// if oas is nil means that we skipped openapi spec parsing errors and we can't check this request
 	if nil == oapi.oas {
 
-		err := fmt.Errorf("OpenApi spec is missing for : %s %s", req.Method, req.RequestURI)
+		err := fmt.Errorf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, "OpenApi spec is missing or malformed")
 		replacer.Set(OPENAPI_ERROR, err.Error())
 		replacer.Set(OPENAPI_STATUS_CODE, 403)
 		if oapi.LogError {
