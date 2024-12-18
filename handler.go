@@ -55,7 +55,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		replacer.Set(OPENAPI_ERROR, err.Error())
 		replacer.Set(OPENAPI_STATUS_CODE, 404)
 		if oapi.LogError {
-			oapi.err(fmt.Sprintf("%s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
+			oapi.err(fmt.Sprintf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
 		}
 		if !oapi.FallThrough {
 			return oapi.respond(w, replacer)
@@ -105,7 +105,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				replacer.Set(OPENAPI_ERROR, err.Error())
 				replacer.Set(OPENAPI_STATUS_CODE, 403)
 				if oapi.LogError {
-					oapi.err(err.Error())
+					oapi.err(fmt.Sprintf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
 				}
 				return oapi.respond(w, replacer)
 			}
@@ -115,7 +115,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				replacer.Set(OPENAPI_ERROR, err.Error())
 				replacer.Set(OPENAPI_STATUS_CODE, 403)
 				if oapi.LogError {
-					oapi.err(err.Error())
+					oapi.err(fmt.Sprintf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
 				}
 				return oapi.respond(w, replacer)
 			}
