@@ -1,10 +1,13 @@
 package openapi
 
 import (
+	"bytes"
 	"fmt"
 	"strings"
 
 	"net/http"
+
+	"sync"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
 
@@ -119,47 +122,78 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		}
 	}
 
-	wrapper := &WrapperResponseWriter{ResponseWriter: w}
-	if err := next.ServeHTTP(wrapper, req); nil != err {
+	// In case we shouldn't validate responses, we're going to execute the next handler and return early (less overhead)
+	if (nil == route) || (nil == oapi.Check) || (nil == oapi.contentMap) {
+		return next.ServeHTTP(w, req)
+	}
+
+	// get a buffer to hold the response body
+	respBuf := bufPool.Get().(*bytes.Buffer)
+	respBuf.Reset()
+	defer bufPool.Put(respBuf)
+
+	shouldBuffer := func(status int, header http.Header) bool {
+		return true
+	}
+	rec := caddyhttp.NewResponseRecorder(w, respBuf, shouldBuffer)
+	if err := next.ServeHTTP(rec, req); nil != err {
 		return err
 	}
 
-	// if oapi route is nil we don't have check response
-	if (nil != route) && (nil != oapi.contentMap) {
-		contentType := w.Header().Get("Content-Type")
-		if "" == contentType {
-			return nil
-		}
-		contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
-		_, ok := oapi.contentMap[contentType]
-		if !ok {
-			return nil
-		}
+	// if ResponseRecorder was not buffered, we don't need to validate response
+	if !rec.Buffered() {
+		return nil
+	}
 
-		validateReqInput := &openapi3filter.RequestValidationInput{
-			Request:    req,
-			PathParams: pathParams,
-			Route:      route,
-			Options: &openapi3filter.Options{
-				ExcludeRequestBody:    true,
-				ExcludeResponseBody:   false,
-				IncludeResponseStatus: true,
-			},
-		}
+	contentType := w.Header().Get("Content-Type")
+	if "" == contentType {
+		return nil
+	}
+	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+	_, ok := oapi.contentMap[contentType]
+	if !ok {
+		return nil
+	}
 
-		if (nil != wrapper.Buffer) && (len(wrapper.Buffer) > 0) {
-			validateRespInput := &openapi3filter.ResponseValidationInput{
-				RequestValidationInput: validateReqInput,
-				Status:                 wrapper.StatusCode,
-				Header:                 http.Header{"Content-Type": oapi.Check.ResponseBody},
-			}
-			validateRespInput.SetBodyBytes(wrapper.Buffer)
-			if err := openapi3filter.ValidateResponse(req.Context(), validateRespInput); nil != err {
-				respErr := err.(*openapi3filter.ResponseError)
-				replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
+	validateReqInput := &openapi3filter.RequestValidationInput{
+		Request:    req,
+		PathParams: pathParams,
+		Route:      route,
+		Options: &openapi3filter.Options{
+			ExcludeRequestBody:    true,
+			ExcludeResponseBody:   false,
+			IncludeResponseStatus: true,
+		},
+	}
+
+	body := rec.Buffer().Bytes()
+
+	if (nil != body) && (len(body) > 0) {
+		validateRespInput := &openapi3filter.ResponseValidationInput{
+			RequestValidationInput: validateReqInput,
+			Status:                 rec.Status(),
+			Header:                 http.Header{"Content-Type": oapi.Check.ResponseBody},
+		}
+		validateRespInput.SetBodyBytes(body)
+		if err := openapi3filter.ValidateResponse(req.Context(), validateRespInput); nil != err {
+			respErr := err.(*openapi3filter.ResponseError)
+			replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
+			if oapi.LogError {
 				oapi.err(fmt.Sprintf("<< %s %s %s: %s", getIP(req), req.Method, req.RequestURI, respErr.Error()))
+			}
+			if !oapi.FallThrough {
+				return err
 			}
 		}
 	}
+
+	rec.WriteResponse()
+
 	return nil
+}
+
+var bufPool = sync.Pool{
+	New: func() interface{} {
+		return new(bytes.Buffer)
+	},
 }
