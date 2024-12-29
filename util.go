@@ -189,16 +189,3 @@ func mkInput(req *http.Request, pathParams map[string]string) map[string]interfa
 
 	return input
 }
-
-func (oapi OpenAPI) log(msg string) {
-	defer oapi.logger.Sync()
-
-	sugar := oapi.logger.Sugar()
-	sugar.Infof(msg)
-}
-
-func (oapi OpenAPI) err(msg string) {
-	defer oapi.logger.Sync()
-	sugar := oapi.logger.Sugar()
-	sugar.Errorf(msg)
-}

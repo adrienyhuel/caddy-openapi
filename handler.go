@@ -7,12 +7,25 @@ import (
 	"net/http"
 
 	"github.com/getkin/kin-openapi/openapi3filter"
+	"go.uber.org/zap"
 
 	"github.com/caddyserver/caddy/v2"
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
 func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next caddyhttp.Handler) error {
+
+	var direction string
+
+	server := req.Context().Value(caddyhttp.ServerCtxKey).(*caddyhttp.Server)
+	shouldLogCredentials := server.Logs != nil && server.Logs.ShouldLogCredentials
+
+	loggableReq := zap.Object("request", caddyhttp.LoggableHTTPRequest{
+		Request:              req,
+		ShouldLogCredentials: shouldLogCredentials,
+	})
+
+	errLogger := oapi.logger.WithLazy(loggableReq, zap.String("direction", direction), zap.Bool("fall_through", oapi.FallThrough))
 
 	url := req.URL
 	if oapi.ValidateServers {
@@ -29,13 +42,15 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	replacer.Set(OPENAPI_STATUS_CODE, "")
 	replacer.Set(OPENAPI_RESPONSE_ERROR, "")
 
+	direction = "input"
+
 	route, pathParams, err := oapi.router.FindRoute(req)
 
 	if nil != err {
 		replacer.Set(OPENAPI_ERROR, err.Error())
 		replacer.Set(OPENAPI_STATUS_CODE, 404)
 		if oapi.LogError {
-			oapi.err(fmt.Sprintf("%s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
+			errLogger.Error("Path not found in OpenAPI", zap.Error(err))
 		}
 		if !oapi.FallThrough {
 			return err
@@ -68,7 +83,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				}
 
 				if oapi.LogError {
-					oapi.err(fmt.Sprintf(">> %s %s %s: %s", getIP(req), req.Method, req.RequestURI, err))
+					errLogger.Error("Error during OpenAPI request validation", zap.Error(err))
 				}
 				if !oapi.FallThrough {
 					return err
@@ -83,7 +98,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 			replacer.Set(OPENAPI_ERROR, err.Error())
 			replacer.Set(OPENAPI_STATUS_CODE, 403)
 			if oapi.LogError {
-				oapi.err(err.Error())
+				errLogger.Error("Error during evaluation policy", zap.Error(err))
 			}
 			return nil
 		}
@@ -93,7 +108,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 			replacer.Set(OPENAPI_ERROR, err.Error())
 			replacer.Set(OPENAPI_STATUS_CODE, 403)
 			if oapi.LogError {
-				oapi.err(err.Error())
+				errLogger.Error("Policy error", zap.Error(err))
 			}
 			return err
 		}
@@ -103,6 +118,8 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	if err := next.ServeHTTP(wrapper, req); nil != err {
 		return err
 	}
+
+	direction = "output"
 
 	if nil != oapi.contentMap {
 		contentType := w.Header().Get("Content-Type")
@@ -136,7 +153,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 			if err := openapi3filter.ValidateResponse(req.Context(), validateRespInput); nil != err {
 				respErr := err.(*openapi3filter.ResponseError)
 				replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
-				oapi.err(fmt.Sprintf("<< %s %s %s: %s", getIP(req), req.Method, req.RequestURI, respErr.Error()))
+				errLogger.Error("Error during OpenAPI response validation", zap.Error(respErr))
 			}
 		}
 	}
