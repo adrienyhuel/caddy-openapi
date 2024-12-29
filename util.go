@@ -13,22 +13,6 @@ import (
 	"github.com/open-policy-agent/opa/rego"
 )
 
-type WrapperResponseWriter struct {
-	http.ResponseWriter
-	StatusCode int
-	Buffer     []byte
-}
-
-func (w *WrapperResponseWriter) WriteHeader(sc int) {
-	w.ResponseWriter.WriteHeader(sc)
-	w.StatusCode = sc
-}
-
-func (w *WrapperResponseWriter) Write(buff []byte) (int, error) {
-	w.Buffer = append(w.Buffer[:], buff[:]...)
-	return w.ResponseWriter.Write(buff)
-}
-
 func getIP(req *http.Request) string {
 	ip := req.Header.Get("X-Forwarded-For")
 	if "" != ip {
