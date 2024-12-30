@@ -111,7 +111,7 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 	oapi.logger = ctx.Logger(oapi)
 	defer oapi.logger.Sync()
 
-	oapi.log(fmt.Sprintf("Using OpenAPI spec: %s", oapi.Spec))
+	oapi.logger.Info(fmt.Sprintf("Using OpenAPI spec: %s", oapi.Spec))
 
 	parse_spec := func() error {
 		if strings.HasPrefix("http", oapi.Spec) {
@@ -138,19 +138,19 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 		if !oapi.SkipMissingSpec {
 			return parse_err
 		} else {
-			oapi.log("OpenAPI spec missing or malformed, skipping...")
+			oapi.logger.Info("OpenAPI spec missing or malformed, skipping...")
 			return nil
 		}
 	}
 
 	if oapi.ValidateServers {
-		oapi.log("List of servers")
+		oapi.logger.Info("List of servers")
 		for _, s := range oas.Servers {
-			oapi.log(fmt.Sprintf("- %s #%s", s.URL, s.Description))
+			oapi.logger.Info(fmt.Sprintf("- %s #%s", s.URL, s.Description))
 		}
 	} else {
 		// clear all servers
-		oapi.log("Disabling server validation")
+		oapi.logger.Info("Disabling server validation")
 		oas.Servers = make([]*openapi3.Server, 0)
 	}
 
@@ -171,7 +171,7 @@ func (oapi *OpenAPI) Provision(ctx caddy.Context) error {
 	}
 
 	if len(oapi.PolicyBundle) > 0 {
-		oapi.log(fmt.Sprintf("Loaded policy bundle: %s", oapi.PolicyBundle))
+		oapi.logger.Info(fmt.Sprintf("Loaded policy bundle: %s", oapi.PolicyBundle))
 		oapi.policy = rego.LoadBundle(oapi.PolicyBundle)
 	}
 
