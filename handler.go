@@ -16,9 +16,27 @@ import (
 	"github.com/caddyserver/caddy/v2/modules/caddyhttp"
 )
 
-func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next caddyhttp.Handler) error {
+type errorLogger struct {
+	*zap.Logger
+}
 
-	var direction string
+func (l *errorLogger) RequestError(msg string, err error) {
+	fields := []zap.Field{
+		zap.String("direction", "input"),
+		zap.Error(err),
+	}
+	l.Logger.Error(msg, fields...)
+}
+
+func (l *errorLogger) ResponseError(msg string, err error) {
+	fields := []zap.Field{
+		zap.String("direction", "output"),
+		zap.Error(err),
+	}
+	l.Logger.Error(msg, fields...)
+}
+
+func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next caddyhttp.Handler) error {
 
 	server := req.Context().Value(caddyhttp.ServerCtxKey).(*caddyhttp.Server)
 	shouldLogCredentials := server.Logs != nil && server.Logs.ShouldLogCredentials
@@ -28,7 +46,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		ShouldLogCredentials: shouldLogCredentials,
 	})
 
-	errLogger := oapi.logger.WithLazy(loggableReq, zap.String("direction", direction), zap.Bool("fall_through", oapi.FallThrough))
+	errLogger := &errorLogger{oapi.logger.WithLazy(loggableReq, zap.Bool("fall_through", oapi.FallThrough))}
 
 	url := req.URL
 	if oapi.ValidateServers {
@@ -45,8 +63,6 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	replacer.Set(OPENAPI_STATUS_CODE, "")
 	replacer.Set(OPENAPI_RESPONSE_ERROR, "")
 
-	direction = "input"
-
 	// if oas is nil means that we skipped openapi spec parsing errors and we can't check this request
 	if nil == oapi.oas {
 
@@ -54,7 +70,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		replacer.Set(OPENAPI_ERROR, err.Error())
 		replacer.Set(OPENAPI_STATUS_CODE, 404)
 		if oapi.LogError {
-			errLogger.Error("Error during OpenAPI request validation", zap.Error(err))
+			errLogger.RequestError("Error during OpenAPI request validation", err)
 		}
 
 		if !oapi.FallThrough {
@@ -70,7 +86,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 		replacer.Set(OPENAPI_ERROR, err.Error())
 		replacer.Set(OPENAPI_STATUS_CODE, 404)
 		if oapi.LogError {
-			errLogger.Error("Path not found in OpenAPI", zap.Error(err))
+			errLogger.RequestError("Path not found in OpenAPI", err)
 		}
 		if !oapi.FallThrough {
 			return err
@@ -103,7 +119,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				}
 
 				if oapi.LogError {
-					errLogger.Error("Error during OpenAPI request validation", zap.Error(err))
+					errLogger.RequestError("Error during OpenAPI request validation", err)
 				}
 				if !oapi.FallThrough {
 					return err
@@ -120,7 +136,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				replacer.Set(OPENAPI_ERROR, err.Error())
 				replacer.Set(OPENAPI_STATUS_CODE, 403)
 				if oapi.LogError {
-					errLogger.Error("Error during evaluation policy", zap.Error(err))
+					errLogger.RequestError("Error during evaluation policy", err)
 				}
 				return nil
 			}
@@ -130,7 +146,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 				replacer.Set(OPENAPI_ERROR, err.Error())
 				replacer.Set(OPENAPI_STATUS_CODE, 403)
 				if oapi.LogError {
-					errLogger.Error("Policy error", zap.Error(err))
+					errLogger.RequestError("Policy error", err)
 				}
 				return err
 			}
@@ -159,8 +175,6 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	if !rec.Buffered() {
 		return nil
 	}
-
-	direction = "output"
 
 	contentType := w.Header().Get("Content-Type")
 	if "" == contentType {
@@ -196,7 +210,7 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 			respErr := err.(*openapi3filter.ResponseError)
 			replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
 			if oapi.LogError {
-				errLogger.Error("Error during OpenAPI response validation", zap.Error(respErr))
+				errLogger.ResponseError("Error during OpenAPI response validation", respErr)
 			}
 			if !oapi.FallThrough {
 				return err
