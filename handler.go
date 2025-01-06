@@ -177,43 +177,39 @@ func (oapi OpenAPI) ServeHTTP(w http.ResponseWriter, req *http.Request, next cad
 	}
 
 	contentType := w.Header().Get("Content-Type")
-	if "" == contentType {
-		return nil
-	}
 	contentType = strings.ToLower(strings.TrimSpace(strings.Split(contentType, ";")[0]))
+
 	_, ok := oapi.contentMap[contentType]
-	if !ok {
-		return nil
-	}
-
-	validateReqInput := &openapi3filter.RequestValidationInput{
-		Request:    req,
-		PathParams: pathParams,
-		Route:      route,
-		Options: &openapi3filter.Options{
-			ExcludeRequestBody:    true,
-			ExcludeResponseBody:   false,
-			IncludeResponseStatus: true,
-		},
-	}
-
-	body := rec.Buffer().Bytes()
-
-	if (nil != body) && (len(body) > 0) {
-		validateRespInput := &openapi3filter.ResponseValidationInput{
-			RequestValidationInput: validateReqInput,
-			Status:                 rec.Status(),
-			Header:                 http.Header{"Content-Type": oapi.Check.ResponseBody},
+	if ok {
+		validateReqInput := &openapi3filter.RequestValidationInput{
+			Request:    req,
+			PathParams: pathParams,
+			Route:      route,
+			Options: &openapi3filter.Options{
+				ExcludeRequestBody:    true,
+				ExcludeResponseBody:   false,
+				IncludeResponseStatus: true,
+			},
 		}
-		validateRespInput.SetBodyBytes(body)
-		if err := openapi3filter.ValidateResponse(req.Context(), validateRespInput); nil != err {
-			respErr := err.(*openapi3filter.ResponseError)
-			replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
-			if oapi.LogError {
-				errLogger.ResponseError("Error during OpenAPI response validation", respErr)
+
+		body := rec.Buffer().Bytes()
+
+		if (nil != body) && (len(body) > 0) {
+			validateRespInput := &openapi3filter.ResponseValidationInput{
+				RequestValidationInput: validateReqInput,
+				Status:                 rec.Status(),
+				Header:                 rec.Header(),
 			}
-			if !oapi.FallThrough {
-				return err
+			validateRespInput.SetBodyBytes(body)
+			if err := openapi3filter.ValidateResponse(req.Context(), validateRespInput); nil != err {
+				respErr := err.(*openapi3filter.ResponseError)
+				replacer.Set(OPENAPI_RESPONSE_ERROR, respErr.Error())
+				if oapi.LogError {
+					errLogger.ResponseError("Error during OpenAPI response validation", respErr)
+				}
+				if !oapi.FallThrough {
+					return err
+				}
 			}
 		}
 	}
